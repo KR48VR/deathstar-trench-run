@@ -29,7 +29,7 @@ window.addEventListener('resize', resize); resize();
 // ---------- game state ----------
 const G = {
   mode: 'title', t: 0, uiCool: 0,
-  score: 0, hi: +(localStorage.getItem('trenchHi') || 0),
+  score: 0, hi: (function () { try { return +(localStorage.getItem('trenchHi') || 0); } catch (e) { return 0; } })(),
   shields: 6, px: 0, py: 0, speed: 300, run: 0,
   RUN0: 6000, dist: 6000, pass: 1,
   finale: false, port: null, torpFired: false, torpHit: false, missMsg: false, lockPlayed: false,
