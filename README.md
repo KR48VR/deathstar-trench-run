@@ -27,7 +27,7 @@ exhaust port.
 | --- | --- |
 | Arrow keys / WASD / mouse | Steer |
 | Space / click | Fire lasers |
-| Space (during the final approach) | Fire torpedoes |
+| F / tap (during the final approach) | Fire torpedoes |
 | P | Pause |
 | M | Toggle sound |
 | Enter | Start / restart |
@@ -36,8 +36,10 @@ exhaust port.
 - **Shoot** wall and floor turrets (150 pts) and enemy fighters (250 pts)
   before their fire strips your six shield cells.
 - **The finale:** when the range meter hits zero the targeting computer comes
-  on. Hold the center line, wait for the diamond to turn green (**LOCK**), and
-  fire. Miss, and you loop around for another pass — each pass is harder.
+  on — but get close enough and a ghostly voice tells you to *use the Force*.
+  The computer switches off; hold the center line, wait for the words to glow,
+  and press **F** (or tap) to take the shot on feel. Miss, and you loop around
+  for another pass — each pass is harder.
 - Victory pays +5000, plus +500 for every shield cell you kept. High score
   persists in `localStorage`.
 
@@ -52,5 +54,7 @@ Touch is supported: drag to steer, hold to fire, tap to launch torpedoes.
   varied but stable frame to frame.
 - All sound effects (lasers, explosions, torpedo, lock tone, engine hum that
   pitches with speed) are synthesized on the fly with the WebAudio API.
+- The voice cue is generated live by the browser's speech-synthesis engine —
+  still zero audio assets.
 
 An original homage — no Star Wars assets, names, or trademarks are used.

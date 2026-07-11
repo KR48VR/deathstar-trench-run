@@ -33,6 +33,7 @@ const G = {
   shields: 6, px: 0, py: 0, speed: 300, run: 0,
   RUN0: 6000, dist: 6000, pass: 1,
   finale: false, port: null, torpFired: false, torpHit: false, missMsg: false, lockPlayed: false,
+  forceCue: false, forceOn: false,
   fireCool: 0, spawnAt: 500, boomT: 0, tally: false,
   msgs: [], shake: 0, flash: 0, red: 0,
   obs: [], tur: [], ftr: [], bolts: [], lasers: [], torps: [], parts: [], rings: []
@@ -71,7 +72,7 @@ function handleKey(c) {
   if (c === 'KeyM') { muted = !muted; toast(muted ? 'SOUND OFF' : 'SOUND ON'); return; }
   if (c === 'KeyP' && (G.mode === 'play' || G.mode === 'pause')) { G.mode = G.mode === 'play' ? 'pause' : 'play'; return; }
   if (c === 'Enter') { if ((G.mode === 'title' || G.mode === 'over' || G.mode === 'win') && G.uiCool <= 0) start(); return; }
-  if (c === 'Space') pressFire();
+  if (c === 'Space' || c === 'KeyF') pressFire();
 }
 function pressFire() {
   if (G.mode === 'title' || G.mode === 'over' || G.mode === 'win') { if (G.uiCool <= 0) start(); return; }
@@ -124,6 +125,32 @@ const sfx = {
   win() { [523, 659, 784, 1047, 1319].forEach((f, i) => tone('square', f, f, 0.16, 0.13, i * 0.13)); },
   lose() { [330, 262, 196, 131].forEach((f, i) => tone('sawtooth', f, f * 0.8, 0.22, 0.15, i * 0.16)); }
 };
+function padChord() {
+  if (!AC || muted) return;
+  const t = AC.currentTime;
+  [196, 247, 294, 392].forEach((f, i) => {
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = 'sine'; o.frequency.value = f;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.045, t + 0.6 + i * 0.12);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 3.6);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + 3.8);
+  });
+}
+function speakForce() {
+  padChord();
+  if (muted) return;
+  try {
+    if (!('speechSynthesis' in window)) return;
+    const u = new SpeechSynthesisUtterance('Use the Force. Let go. Trust your feelings.');
+    u.rate = 0.72; u.pitch = 0.45; u.volume = 1;
+    const vs = speechSynthesis.getVoices();
+    const v = vs.find(x => /^en/i.test(x.lang) && /male|david|daniel|george|james/i.test(x.name))
+      || vs.find(x => /^en/i.test(x.lang)) || null;
+    if (v) u.voice = v;
+    speechSynthesis.cancel(); speechSynthesis.speak(u);
+  } catch (e) { }
+}
 function engineUpdate() {
   if (!AC || !engGain) return;
   const on = G.mode === 'play' && !muted;
@@ -522,6 +549,7 @@ function start() {
   G.mode = 'play'; G.score = 0; G.shields = 6;
   G.px = 0; G.py = 0; G.speed = 300; G.run = 0; G.dist = G.RUN0; G.pass = 1;
   G.finale = false; G.port = null; G.torpFired = false; G.torpHit = false; G.missMsg = false; G.lockPlayed = false;
+  G.forceCue = false; G.forceOn = false;
   G.fireCool = 0; G.spawnAt = 500; G.boomT = 0; G.tally = false;
   G.obs.length = 0; G.tur.length = 0; G.ftr.length = 0; G.bolts.length = 0;
   G.lasers.length = 0; G.torps.length = 0; G.parts.length = 0; G.rings.length = 0;
@@ -532,17 +560,18 @@ function startFinale() {
   G.finale = true;
   G.port = { x: 0, z: FAR + 250 };
   G.torpFired = false; G.torpHit = false; G.missMsg = false; G.lockPlayed = false;
+  G.forceCue = false; G.forceOn = false;
   G.obs = G.obs.filter(o => o.z < 900);
   G.tur = G.tur.filter(t => t.z < 900);
   G.ftr.length = 0;
   toast('TARGETING COMPUTER ON');
-  toast('EXHAUST PORT AHEAD — SPACE / TAP TO FIRE TORPEDOES');
+  toast('EXHAUST PORT AHEAD');
   sfx.alarm();
 }
 function fireTorpedo() {
   if (!G.finale || G.torpFired || G.mode !== 'play' || !G.port) return;
   G.torpFired = true;
-  const inWin = G.port.z > 200 && G.port.z < 660 && Math.abs(G.px - G.port.x) < 62;
+  const inWin = G.forceOn && G.port.z > 100 && G.port.z < 880 && Math.abs(G.px - G.port.x) < 85;
   for (const s of [-1, 1]) G.torps.push({ x: G.px + s * 16, y: G.py - 14, z: 24, willHit: inWin });
   sfx.torp();
 }
@@ -658,7 +687,12 @@ function update(dt) {
   if (G.dist <= 0 && !G.finale) startFinale();
   if (G.finale && G.port) {
     G.port.z -= G.speed * dt;
-    const locked = G.port.z > 200 && G.port.z < 660 && Math.abs(G.px - G.port.x) < 62;
+    if (!G.forceCue && G.port.z < 950) {
+      G.forceCue = true; G.forceOn = true;
+      toast('TARGETING COMPUTER OFF');
+      speakForce();
+    }
+    const locked = G.forceOn && G.port.z > 100 && G.port.z < 880 && Math.abs(G.px - G.port.x) < 85;
     if (locked && !G.lockPlayed) { G.lockPlayed = true; sfx.lock(); }
     if (G.port.z < 90 && !G.torpHit) {
       missPass(G.torpFired ? 'THE SHOT WENT WIDE' : 'TOO LATE — THE PORT IS BEHIND YOU');
@@ -743,20 +777,35 @@ function drawHUD() {
 function drawTargeting() {
   const p = G.port; if (!p) return;
   const blink = Math.sin(G.t * 8) > 0;
-  if (blink) txt('◄ TARGETING COMPUTER ON ►', CX, 20, 16, C.tur, 'center');
-  const locked = p.z > 200 && p.z < 660 && Math.abs(G.px - p.x) < 62;
-  const col = locked ? '#39ff5a' : C.tur;
+  const locked = G.forceOn && p.z > 100 && p.z < 880 && Math.abs(G.px - p.x) < 85;
+  if (!G.forceOn) {
+    if (blink) txt('◄ TARGETING COMPUTER ON ►', CX, 20, 16, C.tur, 'center');
+    if (p.z >= NEAR) {
+      prj(p.x, FY + 8, p.z, _p1);
+      const s = Math.max(10, _p1.s * 34);
+      ctx.strokeStyle = C.tur; ctx.lineWidth = 1.6; ctx.globalAlpha = 0.95;
+      ctx.beginPath();
+      ctx.moveTo(_p1.x, _p1.y - s); ctx.lineTo(_p1.x + s, _p1.y); ctx.lineTo(_p1.x, _p1.y + s); ctx.lineTo(_p1.x - s, _p1.y); ctx.closePath();
+      ctx.stroke(); ctx.globalAlpha = 1;
+      txt('PORT ' + Math.max(0, Math.floor(p.z)) + ' M', _p1.x, _p1.y + s + 6, 13, C.tur, 'center');
+    }
+    txt('HOLD CENTER LINE — THE PORT IS COMING UP', CX, H * 0.3, 13, C.dim, 'center', 0.8);
+    return;
+  }
+  // targeting computer off — flying on feel now
+  txt('TARGETING COMPUTER OFF', CX, 20, 14, C.dim, 'center', 0.7);
   if (p.z >= NEAR) {
     prj(p.x, FY + 8, p.z, _p1);
     const s = Math.max(10, _p1.s * 34);
-    ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.globalAlpha = 0.95;
+    ctx.strokeStyle = C.port; ctx.lineWidth = 1.4; ctx.globalAlpha = 0.22;
     ctx.beginPath();
     ctx.moveTo(_p1.x, _p1.y - s); ctx.lineTo(_p1.x + s, _p1.y); ctx.lineTo(_p1.x, _p1.y + s); ctx.lineTo(_p1.x - s, _p1.y); ctx.closePath();
     ctx.stroke(); ctx.globalAlpha = 1;
-    txt('PORT ' + Math.max(0, Math.floor(p.z)) + ' M', _p1.x, _p1.y + s + 6, 13, col, 'center');
   }
-  if (locked && !G.torpFired && blink) txt('■ LOCK — FIRE NOW ■', CX, H * 0.3, 22, '#39ff5a', 'center');
-  else if (!G.torpFired) txt('HOLD CENTER LINE — WAIT FOR LOCK', CX, H * 0.3, 13, C.dim, 'center', 0.8);
+  const pulse = Math.min(1, 0.45 + 0.35 * Math.sin(G.t * 2.6) + (locked ? 0.25 : 0));
+  txt('“ U S E   T H E   F O R C E ”', CX, H * 0.26, locked ? 26 : 22, locked ? C.white : '#9db8ff', 'center', pulse);
+  if (!G.torpFired)
+    txt('F / TAP — FIRE TORPEDOES', CX, H * 0.26 + 42 * SCL, 15, locked ? '#39ff5a' : C.dim, 'center', locked ? (blink ? 1 : 0.6) : 0.7);
 }
 function drawMsgs() {
   let y = H * 0.6;
@@ -777,9 +826,9 @@ function drawScreens() {
     bigTitle();
     txt('A LONE FIGHTER. ONE SHOT. A GALAXY IN THE BALANCE.', CX, H * 0.42, 14, C.white, 'center', 0.9);
     txt('ARROWS / WASD / MOUSE ─ STEER', CX, H * 0.52, 13, C.dim, 'center');
-    txt('SPACE / CLICK ─ LASERS ・ IN THE SLOT: SPACE ─ TORPEDO', CX, H * 0.52 + 22 * SCL, 13, C.dim, 'center');
+    txt('SPACE / CLICK ─ LASERS ・ IN THE SLOT: F ─ TORPEDO', CX, H * 0.52 + 22 * SCL, 13, C.dim, 'center');
     txt('P ─ PAUSE ・ M ─ SOUND', CX, H * 0.52 + 44 * SCL, 13, C.dim, 'center');
-    txt('SURVIVE THE TRENCH. DROP A TORPEDO IN THE EXHAUST PORT.', CX, H * 0.52 + 74 * SCL, 13, C.tur, 'center');
+    txt('SURVIVE THE TRENCH. AND WHEN THE VOICE SPEAKS — TRUST IT.', CX, H * 0.52 + 74 * SCL, 13, C.tur, 'center');
     if (Math.sin(G.t * 4) > -0.2) txt('PRESS ENTER OR CLICK TO START', CX, H * 0.74, 19, C.white, 'center');
     txt('HIGH SCORE ' + String(Math.floor(G.hi)).padStart(6, '0'), CX, H * 0.83, 14, C.grid, 'center');
   } else if (G.mode === 'over') {
