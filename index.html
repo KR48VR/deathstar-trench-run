@@ -33,9 +33,9 @@ const G = {
   shields: 6, px: 0, py: 0, speed: 300, run: 0,
   RUN0: 6000, dist: 6000, pass: 1,
   finale: false, port: null, torpFired: false, torpHit: false, missMsg: false, lockPlayed: false,
-  forceCue: false, forceOn: false,
+  forceCue: false, forceOn: false, spdMul: 1,
   fireCool: 0, spawnAt: 500, boomT: 0, tally: false,
-  msgs: [], shake: 0, flash: 0, red: 0,
+  msgs: [], shake: 0, flash: 0, red: 0, danger: false, warnT: 0,
   obs: [], tur: [], ftr: [], bolts: [], lasers: [], torps: [], parts: [], rings: []
 };
 let shakeX = 0, shakeY = 0;
@@ -123,7 +123,8 @@ const sfx = {
   lock() { tone('square', 1200, 1200, 0.07, 0.12); tone('square', 1200, 1200, 0.07, 0.12, 0.12); },
   alarm() { for (let i = 0; i < 3; i++) tone('square', 660, 660, 0.09, 0.13, i * 0.16); },
   win() { [523, 659, 784, 1047, 1319].forEach((f, i) => tone('square', f, f, 0.16, 0.13, i * 0.13)); },
-  lose() { [330, 262, 196, 131].forEach((f, i) => tone('sawtooth', f, f * 0.8, 0.22, 0.15, i * 0.16)); }
+  lose() { [330, 262, 196, 131].forEach((f, i) => tone('sawtooth', f, f * 0.8, 0.22, 0.15, i * 0.16)); },
+  warn() { tone('square', 520, 500, 0.05, 0.09); }
 };
 function padChord() {
   if (!AC || muted) return;
@@ -142,8 +143,8 @@ function speakForce() {
   if (muted) return;
   try {
     if (!('speechSynthesis' in window)) return;
-    const u = new SpeechSynthesisUtterance('Use the Force. Let go. Trust your feelings.');
-    u.rate = 0.72; u.pitch = 0.45; u.volume = 1;
+    const u = new SpeechSynthesisUtterance('Use the Force. Trust your feelings.');
+    u.rate = 0.8; u.pitch = 0.45; u.volume = 1;
     const vs = speechSynthesis.getVoices();
     const v = vs.find(x => /^en/i.test(x.lang) && /male|david|daniel|george|james/i.test(x.name))
       || vs.find(x => /^en/i.test(x.lang)) || null;
@@ -272,14 +273,29 @@ function drawTrench() {
 }
 
 // ---------- entity rendering ----------
+function onCourse(o) {
+  for (const b of o.boxes)
+    if (G.px + 13 > b.x0 && G.px - 13 < b.x1 && G.py + 11 > b.y0 && G.py - 11 < b.y1) return true;
+  return false;
+}
+function fillFace(b, z, col, alpha) {
+  if (z < NEAR || alpha <= 0.02) return;
+  prj(b.x0, b.y0, z, _p1); prj(b.x1, b.y1, z, _p2);
+  ctx.fillStyle = col; ctx.globalAlpha = alpha;
+  ctx.fillRect(_p1.x, _p2.y, _p2.x - _p1.x, _p1.y - _p2.y);
+  ctx.globalAlpha = 1;
+}
 function drawObs() {
   for (const o of G.obs) {
-    const a = fade(o.z) * 0.9;
+    const threat = o.z > 20 && onCourse(o);
+    const col = threat ? '#ff4b3a' : C.obs;
+    const a = fade(o.z) * (threat ? 0.75 + 0.25 * Math.sin(G.t * 14) : 0.9);
     for (const b of o.boxes) {
-      box3(b.x0, b.x1, b.y0, b.y1, o.z, o.z + o.dz, C.obs, a);
+      fillFace(b, o.z, col, fade(o.z) * (threat ? 0.17 : 0.09));
+      box3(b.x0, b.x1, b.y0, b.y1, o.z, o.z + o.dz, col, a);
       if (b.x1 - b.x0 > 60 && b.y1 - b.y0 > 40) {
-        line3(b.x0, b.y0, o.z, b.x1, b.y1, o.z, C.obs, a * 0.4);
-        line3(b.x0, b.y1, o.z, b.x1, b.y0, o.z, C.obs, a * 0.4);
+        line3(b.x0, b.y0, o.z, b.x1, b.y1, o.z, col, a * 0.4);
+        line3(b.x0, b.y1, o.z, b.x1, b.y0, o.z, col, a * 0.4);
       }
     }
   }
@@ -549,7 +565,7 @@ function start() {
   G.mode = 'play'; G.score = 0; G.shields = 6;
   G.px = 0; G.py = 0; G.speed = 300; G.run = 0; G.dist = G.RUN0; G.pass = 1;
   G.finale = false; G.port = null; G.torpFired = false; G.torpHit = false; G.missMsg = false; G.lockPlayed = false;
-  G.forceCue = false; G.forceOn = false;
+  G.forceCue = false; G.forceOn = false; G.spdMul = 1;
   G.fireCool = 0; G.spawnAt = 500; G.boomT = 0; G.tally = false;
   G.obs.length = 0; G.tur.length = 0; G.ftr.length = 0; G.bolts.length = 0;
   G.lasers.length = 0; G.torps.length = 0; G.parts.length = 0; G.rings.length = 0;
@@ -644,7 +660,10 @@ function update(dt) {
 
   // ----- play -----
   const prog = 1 - Math.max(0, G.dist) / G.RUN0;
-  G.speed = Math.min(560, 300 + prog * 200 + (G.pass - 1) * 40);
+  // the ship eases off once the voice speaks — the final approach is slow and quiet
+  const tgtMul = G.finale ? (G.forceOn ? 0.6 : 0.85) : 1;
+  G.spdMul += (tgtMul - G.spdMul) * Math.min(1, dt * 2.5);
+  G.speed = Math.min(560, 300 + prog * 200 + (G.pass - 1) * 40) * G.spdMul;
   // steering
   if (mouse.active) {
     const s = (430 * SCL) / RZ;
@@ -661,6 +680,14 @@ function update(dt) {
   G.px = Math.max(-88, Math.min(88, G.px));
   G.py = Math.max(FY + 18, Math.min(TY - 22, G.py));
   camx = G.px * 0.72; camy = G.py * 0.72;
+
+  // collision-course warning
+  G.danger = false;
+  for (const o of G.obs) {
+    if (o.z > 20 && o.z < 900 && onCourse(o)) { G.danger = true; break; }
+  }
+  G.warnT -= dt;
+  if (G.danger && G.warnT <= 0) { G.warnT = 0.22; sfx.warn(); }
 
   G.run += G.speed * dt;
   if (!G.finale) G.dist -= G.speed * dt;
@@ -687,7 +714,7 @@ function update(dt) {
   if (G.dist <= 0 && !G.finale) startFinale();
   if (G.finale && G.port) {
     G.port.z -= G.speed * dt;
-    if (!G.forceCue && G.port.z < 950) {
+    if (!G.forceCue && G.port.z < 2200) {
       G.forceCue = true; G.forceOn = true;
       toast('TARGETING COMPUTER OFF');
       speakForce();
@@ -731,7 +758,7 @@ function txt(s, x, y, sz, col, align, alpha) {
 function drawReticle() {
   prj(G.px, G.py, RZ, _p1);
   const r = 16 * SCL;
-  ctx.strokeStyle = C.white; ctx.lineWidth = 1.6; ctx.globalAlpha = 0.9;
+  ctx.strokeStyle = G.danger ? C.bolt : C.white; ctx.lineWidth = 1.6; ctx.globalAlpha = 0.9;
   ctx.beginPath();
   ctx.moveTo(_p1.x - r, _p1.y - r * 0.5); ctx.lineTo(_p1.x - r, _p1.y - r); ctx.lineTo(_p1.x - r * 0.5, _p1.y - r);
   ctx.moveTo(_p1.x + r, _p1.y - r * 0.5); ctx.lineTo(_p1.x + r, _p1.y - r); ctx.lineTo(_p1.x + r * 0.5, _p1.y - r);
@@ -828,6 +855,7 @@ function drawScreens() {
     txt('ARROWS / WASD / MOUSE ─ STEER', CX, H * 0.52, 13, C.dim, 'center');
     txt('SPACE / CLICK ─ LASERS ・ IN THE SLOT: F ─ TORPEDO', CX, H * 0.52 + 22 * SCL, 13, C.dim, 'center');
     txt('P ─ PAUSE ・ M ─ SOUND', CX, H * 0.52 + 44 * SCL, 13, C.dim, 'center');
+    txt('STRUCTURES: GREEN ─ YOUR LINE IS CLEAR ・ RED ─ MOVE!', CX, H * 0.52 + 58 * SCL, 13, C.dim, 'center');
     txt('SURVIVE THE TRENCH. AND WHEN THE VOICE SPEAKS — TRUST IT.', CX, H * 0.52 + 74 * SCL, 13, C.tur, 'center');
     if (Math.sin(G.t * 4) > -0.2) txt('PRESS ENTER OR CLICK TO START', CX, H * 0.74, 19, C.white, 'center');
     txt('HIGH SCORE ' + String(Math.floor(G.hi)).padStart(6, '0'), CX, H * 0.83, 14, C.grid, 'center');

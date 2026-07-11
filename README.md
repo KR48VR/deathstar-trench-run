@@ -32,7 +32,11 @@ exhaust port.
 | M | Toggle sound |
 | Enter | Start / restart |
 
-- **Dodge** crossbeams, slabs, and gates blocking the trench.
+- **Dodge** crossbeams, slabs, and gates blocking the trench. Reading them is
+  easy: solid structure is filled, openings are black — and any structure you
+  are currently on course to hit glows **red** and pulses (with a warning
+  tick as it closes in), while a **green** structure means your line is
+  clear. If your reticle turns red, move.
 - **Shoot** wall and floor turrets (150 pts) and enemy fighters (250 pts)
   before their fire strips your six shield cells.
 - **The finale:** when the range meter hits zero the targeting computer comes
