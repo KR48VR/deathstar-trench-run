@@ -33,7 +33,7 @@ const G = {
   shields: 6, px: 0, py: 0, speed: 300, run: 0,
   RUN0: 6000, dist: 6000, pass: 1,
   finale: false, port: null, torpFired: false, torpHit: false, missMsg: false, lockPlayed: false,
-  forceCue: false, forceOn: false, spdMul: 1,
+  forceCue: false, forceOn: false, spdMul: 1, forceT: 0, hintT: 0,
   fireCool: 0, spawnAt: 500, boomT: 0, tally: false,
   msgs: [], shake: 0, flash: 0, red: 0, danger: false, warnT: 0,
   obs: [], tur: [], ftr: [], bolts: [], lasers: [], torps: [], parts: [], rings: []
@@ -54,12 +54,12 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 cv.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; mouse.active = true; });
-cv.addEventListener('mousedown', e => { e.preventDefault(); mouse.down = true; unlockAudio(); pressFire(); });
+cv.addEventListener('mousedown', e => { e.preventDefault(); mouse.down = true; unlockAudio(); pressFire('mouse'); });
 window.addEventListener('mouseup', () => { mouse.down = false; });
 cv.addEventListener('touchstart', e => {
   e.preventDefault(); const t = e.touches[0];
   mouse.x = t.clientX; mouse.y = t.clientY - 70; mouse.active = true; mouse.down = true;
-  unlockAudio(); pressFire();
+  unlockAudio(); pressFire('touch');
 }, { passive: false });
 cv.addEventListener('touchmove', e => {
   e.preventDefault(); const t = e.touches[0];
@@ -72,11 +72,28 @@ function handleKey(c) {
   if (c === 'KeyM') { muted = !muted; toast(muted ? 'SOUND OFF' : 'SOUND ON'); return; }
   if (c === 'KeyP' && (G.mode === 'play' || G.mode === 'pause')) { G.mode = G.mode === 'play' ? 'pause' : 'play'; return; }
   if (c === 'Enter') { if ((G.mode === 'title' || G.mode === 'over' || G.mode === 'win') && G.uiCool <= 0) start(); return; }
-  if (c === 'Space' || c === 'KeyF') pressFire();
+  if (c === 'Space') pressFire('space');
+  if (c === 'KeyF') pressFire('f');
 }
-function pressFire() {
+function pressFire(src) {
   if (G.mode === 'title' || G.mode === 'over' || G.mode === 'win') { if (G.uiCool <= 0) start(); return; }
-  if (G.mode === 'play' && G.finale) fireTorpedo();
+  if (G.mode !== 'play' || !G.finale || !G.port) return;
+  // torpedoes only arm once the voice has spoken, plus a grace period
+  if (!G.forceOn || G.t - G.forceT < 1.2) {
+    if (src === 'f' && G.hintT <= 0) { G.hintT = 2.5; toast('STEADY — WAIT FOR THE VOICE'); }
+    return;
+  }
+  // only a deliberate F press (or a tap, on touchscreens) fires the shot —
+  // mashed lasers on Space/click must never waste it
+  if (src === 'space' || src === 'mouse') {
+    if (G.hintT <= 0) { G.hintT = 2.5; toast('PRESS F TO FIRE TORPEDOES'); }
+    return;
+  }
+  if (G.torpFired) {
+    if (G.hintT <= 0) { G.hintT = 2.5; toast('TORPEDOES ALREADY AWAY'); }
+    return;
+  }
+  fireTorpedo();
 }
 
 // ---------- audio (all synthesized, no assets) ----------
@@ -589,6 +606,7 @@ function fireTorpedo() {
   G.torpFired = true;
   const inWin = G.forceOn && G.port.z > 100 && G.port.z < 880 && Math.abs(G.px - G.port.x) < 85;
   for (const s of [-1, 1]) G.torps.push({ x: G.px + s * 16, y: G.py - 14, z: 24, willHit: inWin });
+  toast('TORPEDOES AWAY');
   sfx.torp();
 }
 function missPass(msg) {
@@ -608,7 +626,7 @@ function portBoom() {
 
 // ---------- update ----------
 function update(dt) {
-  G.t += dt; G.uiCool -= dt;
+  G.t += dt; G.uiCool -= dt; G.hintT -= dt;
   G.shake = Math.max(0, G.shake - dt * 2.2);
   G.red = Math.max(0, G.red - dt * 1.6);
   G.flash = Math.max(0, G.flash - dt * 1.1);
@@ -695,7 +713,7 @@ function update(dt) {
 
   // lasers
   G.fireCool -= dt;
-  if ((keys.Space || mouse.down) && !G.finale && G.fireCool <= 0) {
+  if ((keys.Space || mouse.down) && (!G.finale || !G.forceOn) && G.fireCool <= 0) {
     G.fireCool = 0.17;
     for (const s of [-1, 1]) {
       const ox = G.px + s * 30, oy = G.py - 20;
@@ -715,7 +733,7 @@ function update(dt) {
   if (G.finale && G.port) {
     G.port.z -= G.speed * dt;
     if (!G.forceCue && G.port.z < 2200) {
-      G.forceCue = true; G.forceOn = true;
+      G.forceCue = true; G.forceOn = true; G.forceT = G.t;
       toast('TARGETING COMPUTER OFF');
       speakForce();
     }
